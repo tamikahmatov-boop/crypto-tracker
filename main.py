@@ -1,8 +1,8 @@
 import requests
 import time
 
-BOT_TOKEN = "ТВОЙ_ТОКЕН"
-CHAT_ID = "ТВОЙ_CHAT_ID"
+BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
+CHAT_ID = "6716942872"
 
 THRESHOLD = 15          # рост в %
 WINDOW = 3600           # 1 час
