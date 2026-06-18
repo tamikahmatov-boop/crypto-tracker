@@ -1,8 +1,8 @@
 import requests
 import time
 
-BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
-CHAT_ID = "6716942872"
+BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
+CHAT_ID = "ВСТАВЬ_CHAT_ID"
 
 running = True
 
@@ -116,7 +116,8 @@ def edit_dashboard(text):
         )
     except:
         pass
-        def handle_updates():
+
+def handle_updates():
     global offset
     global running
     global THRESHOLD
@@ -252,7 +253,8 @@ def get_prices():
 
         print("MEXC ERROR:", e)
 
-        return [] 
+        return []
+
 send("🟢 MEXC BOT запущен")
 
 send_dashboard("📊 Загрузка рынка...")
