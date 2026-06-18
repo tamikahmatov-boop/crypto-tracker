@@ -1,18 +1,16 @@
 import requests
 import time
-from collections import defaultdict
 
-# ===== НАСТРОЙКИ =====
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-CHECK_INTERVAL = 10      # Проверка каждые 10 секунд
-WINDOW = 300             # Анализ за 5 минут
-THRESHOLD = 1            # Сигнал при росте от 1%
-ALERT_COOLDOWN = 1800    # Повтор сигнала по монете через 30 минут
-TOP_REPORT_INTERVAL = 60 # Топ-10 каждую минуту
+CHECK_INTERVAL = 10
+WINDOW = 300               # 5 минут
+THRESHOLD = 1              # 1%
+ALERT_COOLDOWN = 1800      # 30 минут
+TOP_INTERVAL = 60
 
-history = defaultdict(list)
+price_history = {}
 last_alert = {}
 last_top_report = 0
 
@@ -28,18 +26,7 @@ def send_message(text):
             timeout=10
         )
     except Exception as e:
-        print("Ошибка Telegram:", e)
-
-
-def get_icon(growth):
-    if growth >= 10:
-        return "💎"
-    elif growth >= 5:
-        return "🔥"
-    elif growth >= 3:
-        return "🚀"
-    else:
-        return "🟢"
+        print("Telegram error:", e)
 
 
 send_message("✅ Крипто-бот Bybit запущен")
@@ -57,16 +44,14 @@ while True:
             time.sleep(10)
             continue
 
-        tickers = response["result"]["list"]
         now = time.time()
-
         top_growth = []
 
-        for ticker in tickers:
+        for ticker in response["result"]["list"]:
 
-            symbol = ticker.get("symbol")
+            symbol = ticker["symbol"]
 
-            if not symbol or not symbol.endswith("USDT"):
+            if not symbol.endswith("USDT"):
                 continue
 
             try:
@@ -74,28 +59,28 @@ while True:
             except:
                 continue
 
-            if price <= 0:
+            if symbol not in price_history:
+                price_history[symbol] = []
+
+            price_history[symbol].append((now, price))
+
+            # оставляем только последние 5 минут
+            price_history[symbol] = [
+                x for x in price_history[symbol]
+                if now - x[0] <= WINDOW
+            ]
+
+            if len(price_history[symbol]) < 2:
                 continue
 
-            history[symbol].append((now, price))
-
-            # Храним только последние 5 минут
-            while history[symbol] and now - history[symbol][0][0] > WINDOW:
-                history[symbol].pop(0)
-
-            if len(history[symbol]) < 2:
-                continue
-
-            old_price = history[symbol][0][1]
-
-            if old_price <= 0:
-                continue
+            old_price = price_history[symbol][0][1]
 
             growth = (price - old_price) / old_price * 100
 
             top_growth.append((growth, symbol))
 
-            # Уведомление по отдельной монете
+            print(symbol, round(growth, 2))
+
             if growth >= THRESHOLD:
 
                 if (
@@ -103,34 +88,27 @@ while True:
                     or now - last_alert[symbol] > ALERT_COOLDOWN
                 ):
 
-                    icon = get_icon(growth)
-
                     send_message(
-                        f"{icon} {symbol}\n\n"
-                        f"📈 Рост: +{growth:.2f}%\n"
-                        f"💵 Цена: {price}\n"
-                        f"⏱ За последние 5 минут"
+                        f"🚀 {symbol}\n"
+                        f"Рост за 5 минут: +{growth:.2f}%\n"
+                        f"Цена: {price}"
                     )
 
                     last_alert[symbol] = now
 
-        # Топ-10 за 5 минут
-        if now - last_top_report >= TOP_REPORT_INTERVAL:
+        if now - last_top_report > TOP_INTERVAL:
 
             top_growth.sort(reverse=True)
 
-            message = "📈 ТОП-10 ЗА 5 МИНУТ\n\n"
+            msg = "📈 ТОП-10 ЗА 5 МИНУТ\n\n"
 
-            for i, (growth, symbol) in enumerate(top_growth[:10], start=1):
-                message += (
-                    f"{i}. {symbol}  +{growth:.2f}%\n"
-                )
+            for i, (growth, symbol) in enumerate(top_growth[:10], 1):
+                msg += f"{i}. {symbol} +{growth:.2f}%\n"
 
-            send_message(message)
+            send_message(msg)
 
             last_top_report = now
 
-        print("Проверка завершена")
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
