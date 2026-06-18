@@ -8,87 +8,89 @@ WINDOW = 3600
 CHECK_INTERVAL = 90
 THRESHOLD = 15
 ALERT_COOLDOWN = 3600
+
 PAGES = 10
+
+MIN_PRICE = 0.0001
+MIN_MARKET_CAP = 10_000_000
+
+IGNORE = {
+    "USDT",
+    "USDC",
+    "BUSD",
+    "DAI",
+    "FDUSD",
+    "TUSD",
+    "USDE",
+    "USDD"
+}
 
 history = {}
 last_alert = {}
 
-running = True
-offset = 0  # 🔥 важно для Telegram updates
+dashboard_message_id = None
 
 
-# ===== TELEGRAM =====
-def send(text, markup=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    data = {
-        "chat_id": CHAT_ID,
-        "text": text
-    }
-
-    if markup:
-        data["reply_markup"] = markup
-
-    requests.post(url, data=data)
-
-
-def keyboard():
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "▶️ START", "callback_data": "start"},
-                {"text": "⏹ STOP", "callback_data": "stop"}
-            ],
-            [
-                {"text": "📊 STATUS", "callback_data": "status"},
-                {"text": "🔥 TOP PUMPS", "callback_data": "top"}
-            ]
-        ]
-    }
+def send_message(text):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": CHAT_ID,
+                "text": text
+            },
+            timeout=20
+        )
+    except Exception as e:
+        print("Telegram error:", e)
 
 
-# ===== UPDATES =====
-def handle_updates():
-    global running, offset
+def send_dashboard(text):
+    global dashboard_message_id
 
     try:
-        r = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
-            params={"offset": offset + 1, "timeout": 0}
+        r = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": CHAT_ID,
+                "text": text
+            },
+            timeout=20
         ).json()
 
-        for upd in r.get("result", []):
-
-            offset = upd["update_id"]
-
-            if "callback_query" not in upd:
-                continue
-
-            data = upd["callback_query"]["data"]
-
-            if data == "start":
-                running = True
-                send("🟢 Бот запущен")
-
-            elif data == "stop":
-                running = False
-                send("🔴 Бот остановлен")
-
-            elif data == "status":
-                send(f"📊 RUNNING: {running}")
-
-            elif data == "top":
-                send("🔥 TOP PUMPS временно в разработке")
+        if r.get("ok"):
+            dashboard_message_id = r["result"]["message_id"]
 
     except Exception as e:
-        print("update error:", e)
+        print("Dashboard send error:", e)
 
 
-# ===== COINS =====
+def edit_dashboard(text):
+    global dashboard_message_id
+
+    if dashboard_message_id is None:
+        return
+
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+            data={
+                "chat_id": CHAT_ID,
+                "message_id": dashboard_message_id,
+                "text": text
+            },
+            timeout=20
+        )
+
+    except:
+        pass
+
+
 def get_coins():
-    all_coins = []
+    coins = []
 
     for page in range(1, PAGES + 1):
+
         try:
             r = requests.get(
                 "https://api.coingecko.com/api/v3/coins/markets",
@@ -98,42 +100,55 @@ def get_coins():
                     "per_page": 250,
                     "page": page
                 },
-                timeout=20
-            ).json()
+                timeout=30
+            )
 
-            if isinstance(r, list):
-                all_coins.extend(r)
+            data = r.json()
 
-            time.sleep(0.8)
+            if isinstance(data, list):
+                coins.extend(data)
 
-        except:
-            pass
+            time.sleep(1)
 
-    return all_coins
+        except Exception as e:
+            print("CoinGecko error:", e)
+
+    return coins
 
 
-send("🧪 Бот запущен (УЛУЧШЕННАЯ версия)", markup=keyboard())
+send_message("🟢 Бот запущен")
 
+send_dashboard("📊 Загрузка рынка...")
 
-# ===== MAIN LOOP =====
 while True:
-    try:
-        handle_updates()
 
-        if not running:
-            time.sleep(3)
-            continue
+    try:
 
         now = time.time()
 
         coins = get_coins()
 
-        for c in coins:
+        pumps = 0
 
-            symbol = c.get("symbol", "").upper()
-            price = c.get("current_price")
+        for coin in coins:
 
-            if not symbol or not price:
+            symbol = coin.get("symbol", "").upper()
+            price = coin.get("current_price")
+            market_cap = coin.get("market_cap", 0)
+
+            if not symbol:
+                continue
+
+            if symbol in IGNORE:
+                continue
+
+            if not price:
+                continue
+
+            if price < MIN_PRICE:
+                continue
+
+            if market_cap < MIN_MARKET_CAP:
                 continue
 
             if symbol not in history:
@@ -149,29 +164,45 @@ while True:
             if len(history[symbol]) < 2:
                 continue
 
-            old = history[symbol][0][1]
+            old_price = history[symbol][0][1]
 
-            if old <= 0:
+            if old_price <= 0:
                 continue
 
-            growth = (price - old) / old * 100
-
-            print(symbol, round(growth, 2))
+            growth = (price - old_price) / old_price * 100
 
             if growth >= THRESHOLD:
 
-                if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
+                pumps += 1
 
-                    send(
+                if (
+                    symbol not in last_alert
+                    or now - last_alert[symbol] > ALERT_COOLDOWN
+                ):
+
+                    send_message(
                         f"🚀 {symbol}\n"
-                        f"+{growth:.2f}% за 1 час\n"
-                        f"Цена: {price}$"
+                        f"Рост за 1 час: +{growth:.2f}%\n"
+                        f"Цена: ${price:,.8f}"
                     )
 
                     last_alert[symbol] = now
 
+        dashboard = (
+            "📊 LIVE DASHBOARD\n\n"
+            f"🪙 Монет: {len(coins)}\n"
+            f"🚀 Пампов >15%: {pumps}\n"
+            f"⏱ Интервал: {CHECK_INTERVAL} сек\n"
+            f"📈 Порог: {THRESHOLD}%\n"
+            f"🕒 Окно анализа: 1 час"
+        )
+
+        edit_dashboard(dashboard)
+
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
+
         print("ERROR:", e)
-        time.sleep(5)
+
+        time.sleep(10)
