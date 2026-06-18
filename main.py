@@ -1,9 +1,9 @@
 import requests
 import time
 
-# ===== ВСТАВЬ СЮДА СВОИ ДАННЫЕ =====
-BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
-CHAT_ID = "6716942872"
+# ===== ТВОИ ДАННЫЕ =====
+BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
+CHAT_ID = "ВСТАВЬ_CHAT_ID"
 
 WINDOW = 300
 CHECK_INTERVAL = 10
@@ -14,6 +14,7 @@ history = {}
 last_alert = {}
 
 
+# ===== TELEGRAM =====
 def send(text):
     try:
         requests.post(
@@ -25,15 +26,41 @@ def send(text):
         print("Telegram error:", e)
 
 
-send("🧪 Bybit бот запущен")
+send("🧪 Bybit бот запущен (FIX версия)")
 
 
+# ===== ПОЛУЧЕНИЕ ДАННЫХ BYBIT =====
 def get_prices():
-    url = "https://api.bybit.com/v5/market/tickers"
-    r = requests.get(url, params={"category": "spot"}, timeout=20).json()
-    return r.get("result", {}).get("list", [])
+    try:
+        r = requests.get(
+            "https://api.bybit.com/v5/market/tickers",
+            params={"category": "spot"},
+            timeout=20
+        )
+
+        data = r.json()
+
+        # 🔥 защита от кривого ответа
+        if not isinstance(data, dict):
+            print("BAD RESPONSE (not dict)")
+            return []
+
+        result = data.get("result")
+        if not isinstance(result, dict):
+            return []
+
+        lst = result.get("list")
+        if not isinstance(lst, list):
+            return []
+
+        return lst
+
+    except Exception as e:
+        print("API ERROR:", e)
+        return []
 
 
+# ===== ОСНОВНОЙ ЦИКЛ =====
 while True:
     try:
         now = time.time()
@@ -42,20 +69,26 @@ while True:
 
         for t in tickers:
 
+            if not isinstance(t, dict):
+                continue
+
             symbol = t.get("symbol")
             price = t.get("lastPrice")
 
             if not symbol or not price:
                 continue
 
-            price = float(price)
+            try:
+                price = float(price)
+            except:
+                continue
 
             if symbol not in history:
                 history[symbol] = []
 
             history[symbol].append((now, price))
 
-            # оставляем только 5 минут
+            # чистим 5 минут
             history[symbol] = [
                 x for x in history[symbol]
                 if now - x[0] <= WINDOW
@@ -71,7 +104,7 @@ while True:
 
             growth = (price - old) / old * 100
 
-            print(symbol, growth)
+            print(symbol, round(growth, 3))
 
             if growth >= THRESHOLD:
 
