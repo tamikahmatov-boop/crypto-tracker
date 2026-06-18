@@ -1,8 +1,8 @@
 import requests
 import time
 
-BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
-CHAT_ID = "ВСТАВЬ_CHAT_ID"
+BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
+CHAT_ID = "6716942872"
 
 running = True
 
