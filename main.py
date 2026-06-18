@@ -8,17 +8,17 @@ WINDOW = 3600
 CHECK_INTERVAL = 90
 THRESHOLD = 15
 ALERT_COOLDOWN = 3600
-
 PAGES = 10
 
 history = {}
 last_alert = {}
 
 running = True
+offset = 0  # 🔥 важно для Telegram updates
 
 
 # ===== TELEGRAM =====
-def send(text, reply_markup=None):
+def send(text, markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     data = {
@@ -26,13 +26,12 @@ def send(text, reply_markup=None):
         "text": text
     }
 
-    if reply_markup:
-        data["reply_markup"] = reply_markup
+    if markup:
+        data["reply_markup"] = markup
 
     requests.post(url, data=data)
 
 
-# ===== КНОПКИ =====
 def keyboard():
     return {
         "inline_keyboard": [
@@ -41,36 +40,45 @@ def keyboard():
                 {"text": "⏹ STOP", "callback_data": "stop"}
             ],
             [
-                {"text": "📊 STATUS", "callback_data": "status"}
+                {"text": "📊 STATUS", "callback_data": "status"},
+                {"text": "🔥 TOP PUMPS", "callback_data": "top"}
             ]
         ]
     }
 
 
-# ===== CALLBACK HANDLER =====
+# ===== UPDATES =====
 def handle_updates():
-    global running
+    global running, offset
 
     try:
         r = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
+            params={"offset": offset + 1, "timeout": 0}
         ).json()
 
         for upd in r.get("result", []):
 
-            if "callback_query" in upd:
-                data = upd["callback_query"]["data"]
+            offset = upd["update_id"]
 
-                if data == "start":
-                    running = True
-                    send("🟢 Бот запущен")
+            if "callback_query" not in upd:
+                continue
 
-                elif data == "stop":
-                    running = False
-                    send("🔴 Бот остановлен")
+            data = upd["callback_query"]["data"]
 
-                elif data == "status":
-                    send(f"📊 RUNNING: {running}")
+            if data == "start":
+                running = True
+                send("🟢 Бот запущен")
+
+            elif data == "stop":
+                running = False
+                send("🔴 Бот остановлен")
+
+            elif data == "status":
+                send(f"📊 RUNNING: {running}")
+
+            elif data == "top":
+                send("🔥 TOP PUMPS временно в разработке")
 
     except Exception as e:
         print("update error:", e)
@@ -96,7 +104,7 @@ def get_coins():
             if isinstance(r, list):
                 all_coins.extend(r)
 
-            time.sleep(1)
+            time.sleep(0.8)
 
         except:
             pass
@@ -104,7 +112,7 @@ def get_coins():
     return all_coins
 
 
-send("🧪 Бот запущен с кнопками", reply_markup=keyboard())
+send("🧪 Бот запущен (УЛУЧШЕННАЯ версия)", markup=keyboard())
 
 
 # ===== MAIN LOOP =====
@@ -143,16 +151,21 @@ while True:
 
             old = history[symbol][0][1]
 
+            if old <= 0:
+                continue
+
             growth = (price - old) / old * 100
 
-            print(symbol, growth)
+            print(symbol, round(growth, 2))
 
             if growth >= THRESHOLD:
 
                 if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
 
                     send(
-                        f"🚀 {symbol}\n+{growth:.2f}% за 1 час\n{price}$"
+                        f"🚀 {symbol}\n"
+                        f"+{growth:.2f}% за 1 час\n"
+                        f"Цена: {price}$"
                     )
 
                     last_alert[symbol] = now
