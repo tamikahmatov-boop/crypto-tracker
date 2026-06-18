@@ -7,11 +7,12 @@ BOT_TOKEN = os.getenv("8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw")
 CHAT_ID = os.getenv("6716942872")
 
 CHECK_INTERVAL = 60
-THRESHOLD = 10
-WINDOW = 3600
+WINDOW = 3600      # 1 час
+THRESHOLD = 10     # +10%
 
 history = defaultdict(list)
 last_alert = {}
+
 
 def send_message(text):
     try:
@@ -26,8 +27,10 @@ def send_message(text):
     except Exception as e:
         print("Ошибка Telegram:", e)
 
-# Тестовое уведомление при запуске
-send_message("✅ Крипто-бот запущен и работает")
+
+# Тестовое уведомление
+send_message("✅ Крипто-бот успешно запущен")
+
 
 while True:
     try:
@@ -37,19 +40,28 @@ while True:
         )
 
         tickers = response.json()
-        now = time.time()
 
+        # Binance может вернуть ошибку вместо списка
+        if not isinstance(tickers, list):
+            print("Ошибка Binance:", tickers)
+            time.sleep(60)
+            continue
+
+        now = time.time()
         top_growth = []
 
         for ticker in tickers:
 
-            symbol = ticker["symbol"]
+            if not isinstance(ticker, dict):
+                continue
 
-            if not symbol.endswith("USDT"):
+            symbol = ticker.get("symbol")
+
+            if not symbol or not symbol.endswith("USDT"):
                 continue
 
             try:
-                price = float(ticker["price"])
+                price = float(ticker.get("price", 0))
             except:
                 continue
 
@@ -58,6 +70,7 @@ while True:
 
             history[symbol].append((now, price))
 
+            # Удаляем старые данные
             while history[symbol] and now - history[symbol][0][0] > WINDOW:
                 history[symbol].pop(0)
 
@@ -69,13 +82,16 @@ while True:
             if old_price <= 0:
                 continue
 
-            growth = (price - old_price) / old_price * 100
+            growth = ((price - old_price) / old_price) * 100
 
             top_growth.append((growth, symbol))
 
             if growth >= THRESHOLD:
 
-                if symbol not in last_alert or now - last_alert[symbol] > WINDOW:
+                if (
+                    symbol not in last_alert
+                    or now - last_alert[symbol] > WINDOW
+                ):
 
                     message = (
                         f"🚀 {symbol}\n"
@@ -89,7 +105,7 @@ while True:
 
         top_growth.sort(reverse=True)
 
-        print("\n===== ТОП-5 ЗА ЧАС =====")
+        print("===== ТОП-5 ЗА ЧАС =====")
 
         for growth, symbol in top_growth[:5]:
             print(f"{symbol}: {growth:.2f}%")
@@ -97,5 +113,5 @@ while True:
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
-        print("Ошибка:", e)
+        print("Ошибка:", str(e))
         time.sleep(60)
