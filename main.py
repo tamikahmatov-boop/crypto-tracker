@@ -6,10 +6,10 @@ BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
 CHECK_INTERVAL = 10
-WINDOW = 300              # 5 минут
-THRESHOLD = 0.3           # 0.3%
-ALERT_COOLDOWN = 300      # 5 минут
-TOP_INTERVAL = 60         # Топ-10 каждую минуту
+WINDOW = 300          # 5 минут
+THRESHOLD = 0.3       # 0.3%
+ALERT_COOLDOWN = 300  # 5 минут
+TOP_INTERVAL = 60
 
 history = defaultdict(list)
 last_alert = {}
@@ -18,82 +18,79 @@ last_top_report = 0
 
 def send_message(text):
     try:
-        r = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={
-                "chat_id": CHAT_ID,
-                "text": text
-            },
+            data={"chat_id": CHAT_ID, "text": text},
             timeout=10
         )
-        print(r.json())
     except Exception as e:
         print("Ошибка Telegram:", e)
 
 
-send_message("✅ Крипто-бот Bybit запущен")
+send_message("✅ Крипто-бот запущен")
+
 
 while True:
     try:
-        response = requests.get(
-            "https://api.bybit.com/v5/market/tickers",
-            params={"category": "spot"},
-            timeout=20
-        ).json()
-
-        if response.get("retCode") != 0:
-            print(response)
-            time.sleep(10)
-            continue
-
         now = time.time()
         top_growth = []
 
-        for ticker in response["result"]["list"]:
+        for page in range(1, 5):
 
-            symbol = ticker.get("symbol")
+            response = requests.get(
+                "https://api.coingecko.com/api/v3/coins/markets",
+                params={
+                    "vs_currency": "usd",
+                    "order": "market_cap_desc",
+                    "per_page": 250,
+                    "page": page
+                },
+                timeout=20
+            )
 
-            if not symbol or not symbol.endswith("USDT"):
+            coins = response.json()
+
+            if not isinstance(coins, list):
                 continue
 
-            try:
-                price = float(ticker["lastPrice"])
-            except:
-                continue
+            for coin in coins:
 
-            history[symbol].append((now, price))
+                symbol = coin["symbol"].upper()
+                price = coin["current_price"]
 
-            while history[symbol] and now - history[symbol][0][0] > WINDOW:
-                history[symbol].pop(0)
+                history[symbol].append((now, price))
 
-            if len(history[symbol]) < 2:
-                continue
+                while history[symbol] and now - history[symbol][0][0] > WINDOW:
+                    history[symbol].pop(0)
 
-            old_price = history[symbol][0][1]
+                if len(history[symbol]) < 2:
+                    continue
 
-            if old_price == 0:
-                continue
+                old_price = history[symbol][0][1]
 
-            growth = (price - old_price) / old_price * 100
+                if old_price <= 0:
+                    continue
 
-            top_growth.append((growth, symbol))
+                growth = (price - old_price) / old_price * 100
 
-            if growth >= THRESHOLD:
+                top_growth.append((growth, symbol))
 
-                print(f"Сигнал: {symbol} +{growth:.3f}%")
+                if growth >= THRESHOLD:
 
-                if (
-                    symbol not in last_alert
-                    or now - last_alert[symbol] > ALERT_COOLDOWN
-                ):
+                    if (
+                        symbol not in last_alert
+                        or now - last_alert[symbol] > ALERT_COOLDOWN
+                    ):
 
-                    send_message(
-                        f"🚀 {symbol}\n"
-                        f"📈 Рост за 5 минут: +{growth:.3f}%\n"
-                        f"💵 Цена: {price}"
-                    )
+                        send_message(
+                            f"🚀 {symbol}\n"
+                            f"Рост за 5 минут: +{growth:.2f}%\n"
+                            f"Цена: ${price}"
+                        )
 
-                    last_alert[symbol] = now
+                        last_alert[symbol] = now
+
+            time.sleep(1)
 
         if now - last_top_report >= TOP_INTERVAL:
 
@@ -113,4 +110,4 @@ while True:
 
     except Exception as e:
         print("Ошибка:", e)
-        time.sleep(10)
+        time.sleep(30)
