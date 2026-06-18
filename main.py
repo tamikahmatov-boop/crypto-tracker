@@ -6,7 +6,7 @@ CHAT_ID = "6716942872"
 
 CHECK_INTERVAL = 10
 WINDOW = 300               # 5 минут
-THRESHOLD = 1              # 1%
+THRESHOLD = 0.2             # 1%
 ALERT_COOLDOWN = 1800      # 30 минут
 TOP_INTERVAL = 60
 
