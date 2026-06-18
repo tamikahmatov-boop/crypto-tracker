@@ -2,14 +2,15 @@ import requests
 import time
 from collections import defaultdict
 
+# ===== НАСТРОЙКИ =====
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-CHECK_INTERVAL = 10
-WINDOW = 300          # 5 минут
-THRESHOLD = 0.3       # 0.3%
-ALERT_COOLDOWN = 300  # 5 минут
-TOP_INTERVAL = 60
+CHECK_INTERVAL = 60      # проверка каждую минуту
+WINDOW = 3600            # 1 час
+THRESHOLD = 15           # +15%
+ALERT_COOLDOWN = 3600    # 1 час
+TOP_INTERVAL = 3600      # топ-10 раз в час
 
 history = defaultdict(list)
 last_alert = {}
@@ -20,14 +21,18 @@ def send_message(text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": text},
+            data={
+                "chat_id": CHAT_ID,
+                "text": text
+            },
             timeout=10
         )
     except Exception as e:
-        print("Ошибка Telegram:", e)
+        print("Telegram error:", e)
 
 
-send_message("✅ Крипто-бот запущен")
+# ===== ТЕСТ =====
+send_message("✅ Крипто-бот запущен (15% за 1 час)")
 
 
 while True:
@@ -35,6 +40,7 @@ while True:
         now = time.time()
         top_growth = []
 
+        # ===== 4 страницы = ~1000 монет =====
         for page in range(1, 5):
 
             response = requests.get(
@@ -51,15 +57,20 @@ while True:
             coins = response.json()
 
             if not isinstance(coins, list):
+                print("CoinGecko error:", coins)
                 continue
 
             for coin in coins:
 
-                symbol = coin["symbol"].upper()
-                price = coin["current_price"]
+                symbol = coin.get("symbol", "").upper()
+                price = coin.get("current_price")
+
+                if not price:
+                    continue
 
                 history[symbol].append((now, price))
 
+                # оставляем только 1 час
                 while history[symbol] and now - history[symbol][0][0] > WINDOW:
                     history[symbol].pop(0)
 
@@ -75,6 +86,7 @@ while True:
 
                 top_growth.append((growth, symbol))
 
+                # ===== СИГНАЛ =====
                 if growth >= THRESHOLD:
 
                     if (
@@ -84,19 +96,20 @@ while True:
 
                         send_message(
                             f"🚀 {symbol}\n"
-                            f"Рост за 5 минут: +{growth:.2f}%\n"
+                            f"Рост за 1 час: +{growth:.2f}%\n"
                             f"Цена: ${price}"
                         )
 
                         last_alert[symbol] = now
 
-            time.sleep(1)
+            time.sleep(1)  # защита от лимитов API
 
+        # ===== ТОП-10 =====
         if now - last_top_report >= TOP_INTERVAL:
 
             top_growth.sort(reverse=True)
 
-            msg = "📈 ТОП-10 ЗА 5 МИНУТ\n\n"
+            msg = "📈 ТОП-10 ЗА 1 ЧАС\n\n"
 
             for i, (growth, symbol) in enumerate(top_growth[:10], start=1):
                 msg += f"{i}. {symbol} +{growth:.2f}%\n"
