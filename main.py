@@ -5,6 +5,7 @@ import threading
 import requests
 from collections import defaultdict
 
+# ===== НАСТРОЙКИ =====
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
@@ -16,6 +17,7 @@ price_history = defaultdict(list)
 last_alert = {}
 
 
+# ===== TELEGRAM =====
 def send_message(text):
     try:
         requests.post(
@@ -27,13 +29,14 @@ def send_message(text):
         print("Telegram error:", e)
 
 
+# ===== ОБРАБОТКА ЦЕН =====
 def process(symbol, price):
 
     now = time.time()
 
     price_history[symbol].append((now, price))
 
-    # оставляем 5 минут
+    # оставляем последние 5 минут
     price_history[symbol] = [
         x for x in price_history[symbol]
         if now - x[0] <= WINDOW
@@ -60,32 +63,34 @@ def process(symbol, price):
             last_alert[symbol] = now
 
 
+# ===== WEBSOCKET =====
 def on_message(ws, message):
-
     data = json.loads(message)
 
     if "data" not in data:
         return
 
     for item in data["data"]:
-
         symbol = item["s"]
         price = float(item["c"])
-
         process(symbol, price)
 
 
 def on_open(ws):
     print("CONNECTED")
 
-    # ВСЕ SPOT USDT пары Binance (~300+ монет)
     ws.send(json.dumps({
         "method": "SUBSCRIBE",
         "params": ["!ticker@arr"],
         "id": 1
     }))
 
-    send_message("✅ Новый WebSocket бот запущен")
+    # ===== ТЕСТОВОЕ УВЕДОМЛЕНИЕ =====
+    send_message(
+        "🧪 ТЕСТ УВЕДОМЛЕНИЯ\n\n"
+        "✅ Telegram подключён\n"
+        "🚀 Бот успешно запущен"
+    )
 
 
 def run():
