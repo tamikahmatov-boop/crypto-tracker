@@ -6,11 +6,11 @@ from collections import defaultdict
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-CHECK_INTERVAL = 60      # проверка каждую минуту
-WINDOW = 3600            # 1 час
-THRESHOLD = 15           # +15%
-ALERT_COOLDOWN = 3600    # 1 час
-TOP_INTERVAL = 3600      # топ-10 раз в час
+CHECK_INTERVAL = 10
+WINDOW = 300              # 5 минут
+THRESHOLD = 0.3           # 0.3%
+ALERT_COOLDOWN = 300      # 5 минут
+TOP_INTERVAL = 60         # топ каждые 60 сек
 
 history = defaultdict(list)
 last_alert = {}
@@ -21,18 +21,31 @@ def send_message(text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={
-                "chat_id": CHAT_ID,
-                "text": text
-            },
+            data={"chat_id": CHAT_ID, "text": text},
             timeout=10
         )
     except Exception as e:
         print("Telegram error:", e)
 
 
-# ===== ТЕСТ =====
-send_message("✅ Крипто-бот запущен (15% за 1 час)")
+# ===== ПОЛУЧАЕМ ВСЕ SPOT МОНЕТЫ BYBIT =====
+def get_symbols():
+    url = "https://api.bybit.com/v5/market/instruments-info"
+    params = {"category": "spot"}
+
+    data = requests.get(url, params=params, timeout=20).json()
+
+    symbols = []
+    for item in data["result"]["list"]:
+        if item["status"] == "Trading":
+            symbols.append(item["symbol"])
+
+    return symbols
+
+
+symbols_list = get_symbols()
+
+send_message(f"✅ Bybit бот запущен\nМонет: {len(symbols_list)}")
 
 
 while True:
@@ -40,87 +53,74 @@ while True:
         now = time.time()
         top_growth = []
 
-        # ===== 4 страницы = ~1000 монет =====
-        for page in range(1, 5):
+        # ===== ПОЛУЧАЕМ ЦЕНЫ ВСЕХ МОНЕТ =====
+        response = requests.get(
+            "https://api.bybit.com/v5/market/tickers",
+            params={"category": "spot"},
+            timeout=20
+        ).json()
 
-            response = requests.get(
-                "https://api.coingecko.com/api/v3/coins/markets",
-                params={
-                    "vs_currency": "usd",
-                    "order": "market_cap_desc",
-                    "per_page": 250,
-                    "page": page
-                },
-                timeout=20
-            )
+        tickers = response["result"]["list"]
 
-            coins = response.json()
+        for t in tickers:
 
-            if not isinstance(coins, list):
-                print("CoinGecko error:", coins)
+            symbol = t.get("symbol")
+            if symbol not in symbols_list:
                 continue
 
-            for coin in coins:
+            try:
+                price = float(t["lastPrice"])
+            except:
+                continue
 
-                symbol = coin.get("symbol", "").upper()
-                price = coin.get("current_price")
+            history[symbol].append((now, price))
 
-                if not price:
-                    continue
+            # держим только 5 минут
+            while history[symbol] and now - history[symbol][0][0] > WINDOW:
+                history[symbol].pop(0)
 
-                history[symbol].append((now, price))
+            if len(history[symbol]) < 2:
+                continue
 
-                # оставляем только 1 час
-                while history[symbol] and now - history[symbol][0][0] > WINDOW:
-                    history[symbol].pop(0)
+            old_price = history[symbol][0][1]
 
-                if len(history[symbol]) < 2:
-                    continue
+            if old_price <= 0:
+                continue
 
-                old_price = history[symbol][0][1]
+            growth = (price - old_price) / old_price * 100
 
-                if old_price <= 0:
-                    continue
+            top_growth.append((growth, symbol))
 
-                growth = (price - old_price) / old_price * 100
+            # ===== СИГНАЛЫ =====
+            if growth >= THRESHOLD:
 
-                top_growth.append((growth, symbol))
+                if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
 
-                # ===== СИГНАЛ =====
-                if growth >= THRESHOLD:
+                    send_message(
+                        f"🚀 {symbol}\n"
+                        f"Рост за 5 минут: +{growth:.2f}%\n"
+                        f"Цена: {price}"
+                    )
 
-                    if (
-                        symbol not in last_alert
-                        or now - last_alert[symbol] > ALERT_COOLDOWN
-                    ):
+                    last_alert[symbol] = now
 
-                        send_message(
-                            f"🚀 {symbol}\n"
-                            f"Рост за 1 час: +{growth:.2f}%\n"
-                            f"Цена: ${price}"
-                        )
-
-                        last_alert[symbol] = now
-
-            time.sleep(1)  # защита от лимитов API
-
-        # ===== ТОП-10 =====
+        # ===== ТОП =====
         if now - last_top_report >= TOP_INTERVAL:
 
             top_growth.sort(reverse=True)
 
-            msg = "📈 ТОП-10 ЗА 1 ЧАС\n\n"
+            msg = "📈 ТОП-10 BYBIT (5 МИН)\n\n"
 
-            for i, (growth, symbol) in enumerate(top_growth[:10], start=1):
-                msg += f"{i}. {symbol} +{growth:.2f}%\n"
+            for i, (g, s) in enumerate(top_growth[:10], 1):
+                msg += f"{i}. {s} +{g:.2f}%\n"
 
             send_message(msg)
 
             last_top_report = now
 
-        print("Проверка завершена")
+        print("OK")
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
         print("Ошибка:", e)
-        time.sleep(30)
+        time.sleep(10)
