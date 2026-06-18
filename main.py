@@ -1,19 +1,19 @@
-import requests
+import websocket
+import json
 import time
+import threading
+import requests
 from collections import defaultdict
 
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-CHECK_INTERVAL = 10
-WINDOW = 300
 THRESHOLD = 0.3
+WINDOW = 300
 ALERT_COOLDOWN = 300
-TOP_INTERVAL = 60
 
-history = defaultdict(list)
+price_history = defaultdict(list)
 last_alert = {}
-last_top_report = 0
 
 
 def send_message(text):
@@ -27,97 +27,81 @@ def send_message(text):
         print("Telegram error:", e)
 
 
-def get_spot_symbols():
-    url = "https://api.bybit.com/v5/market/instruments-info"
-    r = requests.get(url, params={"category": "spot"}, timeout=20).json()
+def process(symbol, price):
 
-    symbols = set()
+    now = time.time()
 
-    if "result" in r and "list" in r["result"]:
-        for i in r["result"]["list"]:
-            if i.get("status") == "Trading":
-                symbols.add(i["symbol"])
+    price_history[symbol].append((now, price))
 
-    return symbols
+    # оставляем 5 минут
+    price_history[symbol] = [
+        x for x in price_history[symbol]
+        if now - x[0] <= WINDOW
+    ]
+
+    if len(price_history[symbol]) < 2:
+        return
+
+    old = price_history[symbol][0][1]
+    growth = (price - old) / old * 100
+
+    print(symbol, round(growth, 3))
+
+    if growth >= THRESHOLD:
+
+        if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
+
+            send_message(
+                f"🚀 {symbol}\n"
+                f"Рост 5м: +{growth:.2f}%\n"
+                f"Цена: {price}"
+            )
+
+            last_alert[symbol] = now
 
 
-symbols = get_spot_symbols()
+def on_message(ws, message):
 
-send_message(f"✅ Бот запущен | монет: {len(symbols)}")
+    data = json.loads(message)
+
+    if "data" not in data:
+        return
+
+    for item in data["data"]:
+
+        symbol = item["s"]
+        price = float(item["c"])
+
+        process(symbol, price)
 
 
-while True:
-    try:
-        now = time.time()
+def on_open(ws):
+    print("CONNECTED")
 
-        r = requests.get(
-            "https://api.bybit.com/v5/market/tickers",
-            params={"category": "spot"},
-            timeout=20
-        ).json()
+    # ВСЕ SPOT USDT пары Binance (~300+ монет)
+    ws.send(json.dumps({
+        "method": "SUBSCRIBE",
+        "params": ["!ticker@arr"],
+        "id": 1
+    }))
 
-        tickers = r.get("result", {}).get("list", [])
+    send_message("✅ Новый WebSocket бот запущен")
 
-        top = []
 
-        for t in tickers:
+def run():
+    while True:
+        try:
+            ws = websocket.WebSocketApp(
+                "wss://stream.binance.com:9443/ws",
+                on_message=on_message,
+                on_open=on_open
+            )
 
-            symbol = t.get("symbol")
-            if symbol not in symbols:
-                continue
+            ws.run_forever()
 
-            try:
-                price = float(t.get("lastPrice", 0))
-            except:
-                continue
+        except Exception as e:
+            print("WS error:", e)
+            time.sleep(5)
 
-            if price <= 0:
-                continue
 
-            history[symbol].append((now, price))
-
-            # оставляем 5 минут
-            while history[symbol] and now - history[symbol][0][0] > WINDOW:
-                history[symbol].pop(0)
-
-            if len(history[symbol]) < 2:
-                continue
-
-            old = history[symbol][0][1]
-            growth = (price - old) / old * 100
-
-            top.append((growth, symbol))
-
-            print(symbol, round(growth, 3))
-
-            if growth >= THRESHOLD:
-
-                if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
-
-                    send_message(
-                        f"🚀 {symbol}\n"
-                        f"Рост 5м: +{growth:.2f}%\n"
-                        f"Цена: {price}"
-                    )
-
-                    last_alert[symbol] = now
-
-        # ТОП
-        if now - last_top_report > TOP_INTERVAL:
-
-            top.sort(reverse=True)
-
-            msg = "📈 ТОП-10 (5 МИН)\n\n"
-
-            for i, (g, s) in enumerate(top[:10], 1):
-                msg += f"{i}. {s} +{g:.2f}%\n"
-
-            send_message(msg)
-
-            last_top_report = now
-
-        time.sleep(CHECK_INTERVAL)
-
-    except Exception as e:
-        print("ERROR:", e)
-        time.sleep(10)
+run()
