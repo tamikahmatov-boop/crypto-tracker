@@ -2,15 +2,14 @@ import requests
 import time
 from collections import defaultdict
 
-# ===== НАСТРОЙКИ =====
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
 CHECK_INTERVAL = 10
-WINDOW = 300              # 5 минут
-THRESHOLD = 0.3           # 0.3%
-ALERT_COOLDOWN = 300      # 5 минут
-TOP_INTERVAL = 60         # топ каждые 60 сек
+WINDOW = 300
+THRESHOLD = 0.3
+ALERT_COOLDOWN = 300
+TOP_INTERVAL = 60
 
 history = defaultdict(list)
 last_alert = {}
@@ -28,99 +27,97 @@ def send_message(text):
         print("Telegram error:", e)
 
 
-# ===== ПОЛУЧАЕМ ВСЕ SPOT МОНЕТЫ BYBIT =====
-def get_symbols():
+def get_spot_symbols():
     url = "https://api.bybit.com/v5/market/instruments-info"
-    params = {"category": "spot"}
+    r = requests.get(url, params={"category": "spot"}, timeout=20).json()
 
-    data = requests.get(url, params=params, timeout=20).json()
+    symbols = set()
 
-    symbols = []
-    for item in data["result"]["list"]:
-        if item["status"] == "Trading":
-            symbols.append(item["symbol"])
+    if "result" in r and "list" in r["result"]:
+        for i in r["result"]["list"]:
+            if i.get("status") == "Trading":
+                symbols.add(i["symbol"])
 
     return symbols
 
 
-symbols_list = get_symbols()
+symbols = get_spot_symbols()
 
-send_message(f"✅ Bybit бот запущен\nМонет: {len(symbols_list)}")
+send_message(f"✅ Бот запущен | монет: {len(symbols)}")
 
 
 while True:
     try:
         now = time.time()
-        top_growth = []
 
-        # ===== ПОЛУЧАЕМ ЦЕНЫ ВСЕХ МОНЕТ =====
-        response = requests.get(
+        r = requests.get(
             "https://api.bybit.com/v5/market/tickers",
             params={"category": "spot"},
             timeout=20
         ).json()
 
-        tickers = response["result"]["list"]
+        tickers = r.get("result", {}).get("list", [])
+
+        top = []
 
         for t in tickers:
 
             symbol = t.get("symbol")
-            if symbol not in symbols_list:
+            if symbol not in symbols:
                 continue
 
             try:
-                price = float(t["lastPrice"])
+                price = float(t.get("lastPrice", 0))
             except:
+                continue
+
+            if price <= 0:
                 continue
 
             history[symbol].append((now, price))
 
-            # держим только 5 минут
+            # оставляем 5 минут
             while history[symbol] and now - history[symbol][0][0] > WINDOW:
                 history[symbol].pop(0)
 
             if len(history[symbol]) < 2:
                 continue
 
-            old_price = history[symbol][0][1]
+            old = history[symbol][0][1]
+            growth = (price - old) / old * 100
 
-            if old_price <= 0:
-                continue
+            top.append((growth, symbol))
 
-            growth = (price - old_price) / old_price * 100
+            print(symbol, round(growth, 3))
 
-            top_growth.append((growth, symbol))
-
-            # ===== СИГНАЛЫ =====
             if growth >= THRESHOLD:
 
                 if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
 
                     send_message(
                         f"🚀 {symbol}\n"
-                        f"Рост за 5 минут: +{growth:.2f}%\n"
+                        f"Рост 5м: +{growth:.2f}%\n"
                         f"Цена: {price}"
                     )
 
                     last_alert[symbol] = now
 
-        # ===== ТОП =====
-        if now - last_top_report >= TOP_INTERVAL:
+        # ТОП
+        if now - last_top_report > TOP_INTERVAL:
 
-            top_growth.sort(reverse=True)
+            top.sort(reverse=True)
 
-            msg = "📈 ТОП-10 BYBIT (5 МИН)\n\n"
+            msg = "📈 ТОП-10 (5 МИН)\n\n"
 
-            for i, (g, s) in enumerate(top_growth[:10], 1):
+            for i, (g, s) in enumerate(top[:10], 1):
                 msg += f"{i}. {s} +{g:.2f}%\n"
 
             send_message(msg)
 
             last_top_report = now
 
-        print("OK")
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
-        print("Ошибка:", e)
+        print("ERROR:", e)
         time.sleep(10)
