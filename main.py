@@ -5,9 +5,9 @@ from collections import defaultdict
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-THRESHOLD = 10
-CHECK_INTERVAL = 60
-WINDOW = 3600
+THRESHOLD = 1
+CHECK_INTERVAL = 30
+WINDOW = 300
 
 history = defaultdict(list)
 last_alert = {}
