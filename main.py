@@ -5,7 +5,7 @@ BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
 CHECK_INTERVAL = 10
-WINDOW = 300          # 5 минут
+WINDOW = 300
 THRESHOLD = 0.3
 ALERT_COOLDOWN = 300
 
@@ -24,27 +24,42 @@ def send_message(text):
         print("Telegram error:", e)
 
 
-send_message("🧪 REST бот запущен (без WebSocket)")
+send_message("🧪 REST бот запущен")
 
 
 while True:
     try:
         now = time.time()
 
-        r = requests.get(
+        resp = requests.get(
             "https://api.binance.com/api/v3/ticker/price",
             timeout=20
-        ).json()
+        )
 
-        for item in r:
+        data = resp.json()
 
-            symbol = item["symbol"]
+        # 🔥 ВАЖНО: защита от ошибки API
+        if not isinstance(data, list):
+            print("API ERROR:", data)
+            time.sleep(5)
+            continue
+
+        for item in data:
+
+            if not isinstance(item, dict):
+                continue
+
+            symbol = item.get("symbol")
+            price = item.get("price")
+
+            if not symbol or not price:
+                continue
 
             if not symbol.endswith("USDT"):
                 continue
 
             try:
-                price = float(item["price"])
+                price = float(price)
             except:
                 continue
 
@@ -53,7 +68,7 @@ while True:
 
             history[symbol].append((now, price))
 
-            # чистим старое (5 минут)
+            # чистим 5 минут
             history[symbol] = [
                 x for x in history[symbol]
                 if now - x[0] <= WINDOW
@@ -64,9 +79,12 @@ while True:
 
             old = history[symbol][0][1]
 
+            if old <= 0:
+                continue
+
             growth = (price - old) / old * 100
 
-            print(symbol, round(growth, 3))
+            print(symbol, growth)
 
             if growth >= THRESHOLD:
 
