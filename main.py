@@ -1,11 +1,12 @@
 import requests
 import time
 
+# ===== ВСТАВЬ СЮДА СВОИ ДАННЫЕ =====
 BOT_TOKEN = "8626739818:AAFt7kmdfTgTVlXD-5FnKOVYq1fvNW9hUAw"
 CHAT_ID = "6716942872"
 
-CHECK_INTERVAL = 10
 WINDOW = 300
+CHECK_INTERVAL = 10
 THRESHOLD = 0.3
 ALERT_COOLDOWN = 300
 
@@ -13,7 +14,7 @@ history = {}
 last_alert = {}
 
 
-def send_message(text):
+def send(text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -24,51 +25,37 @@ def send_message(text):
         print("Telegram error:", e)
 
 
-send_message("🧪 REST бот запущен")
+send("🧪 Bybit бот запущен")
+
+
+def get_prices():
+    url = "https://api.bybit.com/v5/market/tickers"
+    r = requests.get(url, params={"category": "spot"}, timeout=20).json()
+    return r.get("result", {}).get("list", [])
 
 
 while True:
     try:
         now = time.time()
 
-        resp = requests.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            timeout=20
-        )
+        tickers = get_prices()
 
-        data = resp.json()
+        for t in tickers:
 
-        # 🔥 ВАЖНО: защита от ошибки API
-        if not isinstance(data, list):
-            print("API ERROR:", data)
-            time.sleep(5)
-            continue
-
-        for item in data:
-
-            if not isinstance(item, dict):
-                continue
-
-            symbol = item.get("symbol")
-            price = item.get("price")
+            symbol = t.get("symbol")
+            price = t.get("lastPrice")
 
             if not symbol or not price:
                 continue
 
-            if not symbol.endswith("USDT"):
-                continue
-
-            try:
-                price = float(price)
-            except:
-                continue
+            price = float(price)
 
             if symbol not in history:
                 history[symbol] = []
 
             history[symbol].append((now, price))
 
-            # чистим 5 минут
+            # оставляем только 5 минут
             history[symbol] = [
                 x for x in history[symbol]
                 if now - x[0] <= WINDOW
@@ -90,7 +77,7 @@ while True:
 
                 if symbol not in last_alert or now - last_alert[symbol] > ALERT_COOLDOWN:
 
-                    send_message(
+                    send(
                         f"🚀 {symbol}\n"
                         f"Рост 5м: +{growth:.2f}%\n"
                         f"Цена: {price}"
