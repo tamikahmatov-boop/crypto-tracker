@@ -1,7 +1,7 @@
 import requests
 import time
+import json
 
-# ===== ТВОИ ДАННЫЕ =====
 BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
 CHAT_ID = "ВСТАВЬ_CHAT_ID"
 
@@ -14,7 +14,6 @@ history = {}
 last_alert = {}
 
 
-# ===== TELEGRAM =====
 def send(text):
     try:
         requests.post(
@@ -26,10 +25,9 @@ def send(text):
         print("Telegram error:", e)
 
 
-send("🧪 Bybit бот запущен (FIX версия)")
+send("🧪 Bybit бот запущен (SAFE VERSION)")
 
 
-# ===== ПОЛУЧЕНИЕ ДАННЫХ BYBIT =====
 def get_prices():
     try:
         r = requests.get(
@@ -38,11 +36,16 @@ def get_prices():
             timeout=20
         )
 
-        data = r.json()
+        text = r.text
 
-        # 🔥 защита от кривого ответа
+        # 🔥 пытаемся распарсить JSON безопасно
+        try:
+            data = json.loads(text)
+        except Exception:
+            print("NOT JSON RESPONSE:", text[:200])
+            return []
+
         if not isinstance(data, dict):
-            print("BAD RESPONSE (not dict)")
             return []
 
         result = data.get("result")
@@ -60,7 +63,6 @@ def get_prices():
         return []
 
 
-# ===== ОСНОВНОЙ ЦИКЛ =====
 while True:
     try:
         now = time.time()
