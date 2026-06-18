@@ -1,22 +1,55 @@
+with open("bybit_symbols.txt", "r") as f:
+    BYBIT_SYMBOLS = set(
+        line.strip().upper()
+        for line in f
+        if line.strip()
+    )
+
+print("BYBIT монет загружено:", len(BYBIT_SYMBOLS))
 import requests
-print("Загрузка монет Bybit...")
 
-r = requests.get(
-    "https://api.bybit.com/v5/market/instruments-info",
-    params={
-        "category": "spot",
-        "limit": 1000
-    },
-    timeout=30
-).json()
+def get_prices():
 
-with open("bybit_symbols.txt", "w") as f:
+    try:
 
-    for coin in r["result"]["list"]:
+        response = requests.get(
+            "https://api.mexc.com/api/v3/ticker/price",
+            timeout=20
+        )
 
-        symbol = coin["symbol"]
+        data = response.json()
 
-        if symbol.endswith("USDT"):
-            f.write(symbol + "\n")
+        if not isinstance(data, list):
+            print("API ERROR:", data)
+            return []
 
-print("Готово")
+        coins = []
+
+        for item in data:
+
+            symbol = item.get("symbol")
+
+            if not symbol:
+                continue
+
+            # только монеты, которые есть в списке Bybit
+            if symbol not in BYBIT_SYMBOLS:
+                continue
+
+            try:
+                price = float(item["price"])
+            except:
+                continue
+
+            coins.append({
+                "symbol": symbol,
+                "price": price
+            })
+
+        return coins
+
+    except Exception as e:
+
+        print("MEXC ERROR:", e)
+
+        return []
